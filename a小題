@@ -1,0 +1,23 @@
+import numpy as np
+from scipy.integrate import solve_ivp
+
+def shooting_method():
+    def ode(x, y, case):
+        if case == 1:  # IVP1
+            return [y[1], -(x+1)*y[1] + 2*y[0] + (1-x**2)*np.exp(-x)]
+        else:  # IVP2
+            return [y[1], -(x+1)*y[1] + 2*y[0]]
+    
+    # Solve IVP1
+    sol1 = solve_ivp(lambda x, y: ode(x, y, 1), [0, 1], [1, 0], t_eval=np.arange(0, 1.01, 0.1))
+    y1_1 = sol1.y[0][-1]  # y1(1)
+    
+    # Solve IVP2
+    sol2 = solve_ivp(lambda x, y: ode(x, y, 2), [0, 1], [0, 1], t_eval=np.arange(0, 1.01, 0.1))
+    y2_1 = sol2.y[0][-1]  # y2(1)
+    
+    c = (2 - y1_1) / y2_1
+    y_shooting = sol1.y[0] + c * sol2.y[0]
+    return sol1.t, y_shooting
+
+x_shooting, y_shooting = shooting_method()
