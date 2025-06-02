@@ -1,0 +1,133 @@
+import numpy as np
+from scipy.integrate import solve_ivp
+import matplotlib.pyplot as plt
+
+def solve_bvp():
+    # ============================== 問題定義 ==============================
+    def p(x): return -(x + 1)  # y'的係數
+    def q(x): return 2         # y的係數
+    def r(x): return (1 - x**2) * np.exp(-x)  # 非齊次項
+    a, b = 0, 1               # 區間
+    alpha, beta = 1, 2         # 邊界條件
+    h = 0.1                   # 步長
+
+    # ============================== 1. 射擊法 ==============================
+    def shooting_method():
+        def ode(x, y, case):
+            if case == 1:  # IVP1: 包含非齊次項
+                return [y[1], p(x)*y[1] + q(x)*y[0] + r(x)]
+            else:  # IVP2: 齊次方程
+                return [y[1], p(x)*y[1] + q(x)*y[0]]
+        
+        # 解IVP1 (y1(0)=1, y1'(0)=0)
+        sol1 = solve_ivp(lambda x, y: ode(x, y, 1), [a, b], [alpha, 0], 
+                        t_eval=np.arange(a, b+h, h))
+        
+        # 解IVP2 (y2(0)=0, y2'(0)=1)
+        sol2 = solve_ivp(lambda x, y: ode(x, y, 2), [a, b], [0, 1], 
+                        t_eval=np.arange(a, b+h, h))
+        
+        # 計算組合係數c
+        c = (beta - sol1.y[0][-1]) / sol2.y[0][-1]
+        
+        # 組合解
+        y_shooting = sol1.y[0] + c * sol2.y[0]
+        return sol1.t, y_shooting
+
+    # ========================= 2. 有限差分法 =========================
+    def finite_difference_method():
+        n = int((b - a) / h)  # 區間數
+        x = np.linspace(a, b, n+1)
+        
+        # 初始化矩陣A和向量F
+        A = np.zeros((n-1, n-1))
+        F = np.zeros(n-1)
+        
+        for i in range(n-1):
+            xi = x[i+1]
+            A[i, i] = 2 + h**2 * q(xi)  # 對角線元素
+            
+            # 填充非對角線元素
+            if i > 0:
+                A[i, i-1] = -1 - 0.5 * h * p(xi)
+            if i < n-2:
+                A[i, i+1] = -1 + 0.5 * h * p(xi)
+            
+            # 填充F向量
+            F[i] = -h**2 * r(xi)
+            if i == 0:
+                F[i] += (1 + 0.5 * h * p(xi)) * alpha
+            elif i == n-2:
+                F[i] += (1 - 0.5 * h * p(xi)) * beta
+        
+        # 解線性系統
+        y_inner = np.linalg.solve(A, F)
+        y_fd = np.concatenate(([alpha], y_inner, [beta]))
+        return x, y_fd
+
+    # ========================= 3. 變分法 =========================
+    def variational_method(n_terms=3):
+        x_var = np.linspace(a, b, 100)
+        
+        # 計算係數矩陣A和向量b
+        A = np.zeros((n_terms, n_terms))
+        b_vec = np.zeros(n_terms)
+        
+        for i in range(1, n_terms+1):
+            for j in range(1, n_terms+1):
+                # 數值積分計算A[i,j]
+                integrand = [(i*np.pi)*(j*np.pi)*np.cos(i*np.pi*x)*np.cos(j*np.pi*x) + 
+                             q(x)*np.sin(i*np.pi*x)*np.sin(j*np.pi*x) for x in x_var]
+                A[i-1, j-1] = np.trapz(integrand, x_var)
+            
+            # 數值積分計算b[i]
+            integrand_b = [r(x)*np.sin(i*np.pi*x) for x in x_var]
+            b_vec[i-1] = np.trapz(integrand_b, x_var)
+        
+        # 解線性系統
+        c = np.linalg.solve(A, b_vec)
+        
+        # 構造近似解
+        y_var = np.zeros_like(x_var)
+        for k in range(1, n_terms+1):
+            y_var += c[k-1] * np.sin(k * np.pi * x_var)
+        
+        # 調整邊界條件
+        y_var += alpha + (beta - alpha) * x_var  # 線性補償
+        return x_var, y_var
+
+    # ========================= 執行所有方法 =========================
+    x_shoot, y_shoot = shooting_method()
+    x_fd, y_fd = finite_difference_method()
+    x_var, y_var = variational_method()
+
+    # ========================= 結果可視化 =========================
+    plt.figure(figsize=(12, 6))
+    plt.plot(x_shoot, y_shoot, 'o-', label='Shooting Method', markersize=5)
+    plt.plot(x_fd, y_fd, 's-', label='Finite Difference', markersize=5)
+    plt.plot(x_var, y_var, '--', label='Variational Method (n=3)')
+    plt.xlabel('x', fontsize=12)
+    plt.ylabel('y(x)', fontsize=12)
+    plt.title('Comparison of Numerical Methods for BVP\n' +
+              r"$y'' = -(x+1)y' + 2y + (1-x^2)e^{-x}$", fontsize=14)
+    plt.legend(fontsize=12)
+    plt.grid(True)
+    plt.show()
+
+    # ========================= 輸出數值結果 =========================
+    print("\n數值解比較表：")
+    print("x\t\t射擊法\t\t有限差分法\t變分法(n=3)")
+    print("-"*60)
+    
+    # 選擇輸出點位（每0.2一個點）
+    for xi in np.arange(a, b+0.01, 0.2):
+        # 找到各方法最近點
+        idx_shoot = np.argmin(np.abs(x_shoot - xi))
+        idx_fd = np.argmin(np.abs(x_fd - xi))
+        idx_var = np.argmin(np.abs(x_var - xi))
+        
+        print(f"{xi:.1f}\t\t{y_shoot[idx_shoot]:.6f}\t{y_fd[idx_fd]:.6f}\t{y_var[idx_var]:.6f}")
+
+# 執行主函數
+if __name__ == "__main__":
+    solve_bvp()
